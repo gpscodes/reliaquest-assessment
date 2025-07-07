@@ -1,11 +1,10 @@
-package com.reliaquest.api.domain;
-
-import lombok.Data;
+package com.reliaquest.api.model;
 
 import java.util.List;
+import lombok.Data;
 
 @Data
-public class EmployeeResponse {
+public class EmployeeApiResponse {
 
     private List<Employee> data;
     private String status;

@@ -1,67 +1,72 @@
 package com.reliaquest.api.controller;
 
-import com.reliaquest.api.domain.Employee;
-import com.reliaquest.api.domain.EmployeeRequest;
-import com.reliaquest.api.service.EmployeeService;
+import com.reliaquest.api.model.Employee;
+import com.reliaquest.api.model.EmployeeRequest;
+import com.reliaquest.api.service.impl.EmployeeService;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Optional;
-
+@Slf4j
 @RestController
-@RequestMapping("/api/employees")
+@RequestMapping(path = "/api/employees")
 @RequiredArgsConstructor
-public class EmployeeController implements IEmployeeController<Employee, EmployeeRequest>{
+public class EmployeeController implements IEmployeeController<Employee, EmployeeRequest> {
 
     private final EmployeeService employeeService;
 
-    @GetMapping
+    @Override
     public ResponseEntity<List<Employee>> getAllEmployees() {
-        return ResponseEntity.of(Optional.ofNullable(employeeService.getAllEmployees()));
+        return ResponseEntity.ok(employeeService.getAllEmployees());
     }
 
-    @GetMapping("/search")
-    public ResponseEntity<List<Employee>> getEmployeesByNameSearch(@RequestParam String name) {
-        return Optional.ofNullable(employeeService.getEmployeesByNameSearch(name))
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+    @Override
+    public ResponseEntity<List<Employee>> getEmployeesByNameSearch(@PathVariable String searchString) {
+        List<Employee> employees = employeeService.getEmployeesByNameSearch(searchString);
+        log.info("Search for '{}' returned {} result(s)", searchString, employees.size());
+        return ResponseEntity.ok(employees);
     }
 
-    @GetMapping("/{id}")
+    @Override
     public ResponseEntity<Employee> getEmployeeById(@PathVariable String id) {
-        return Optional.ofNullable(employeeService.getEmployeeById(id))
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        Employee employee = employeeService.getEmployeeById(id);
+        return ResponseEntity.ok(employee);
     }
 
-    @GetMapping("/highest-salary")
+    @Override
     public ResponseEntity<Integer> getHighestSalaryOfEmployees() {
-        return Optional.ofNullable(employeeService.getHighestSalaryOfEmployees())
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        Integer highestSalary = employeeService.getHighestSalaryOfEmployees();
+        if (highestSalary == null) {
+            log.info("No salary data available");
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(highestSalary);
     }
 
-    @GetMapping("/topTenHighestEarningEmployeeNames")
+    @Override
     public ResponseEntity<List<String>> getTopTenHighestEarningEmployeeNames() {
-        return Optional.ofNullable(employeeService.getTop10HighestEarningEmployeeNames())
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        List<String> topEarners = employeeService.getTop10HighestEarningEmployeeNames();
+        if (topEarners == null || topEarners.isEmpty()) {
+            log.info("No high earning employee names found.");
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(topEarners);
     }
 
-    @PostMapping
+    @Override
     public ResponseEntity<Employee> createEmployee(@Valid @RequestBody EmployeeRequest request) {
-        return Optional.ofNullable(employeeService.createEmployee(request))
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        Employee createdEmployee = employeeService.createEmployee(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdEmployee);
     }
 
-    @DeleteMapping("/{id}")
+    @Override
     public ResponseEntity<String> deleteEmployeeById(@PathVariable String id) {
-        return Optional.ofNullable(employeeService.deleteEmployeeById(id))
-                .map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        employeeService.deleteEmployeeById(id);
+        log.info("Employee with ID {} successfully deleted", id);
+        return ResponseEntity.noContent().build();
     }
 }

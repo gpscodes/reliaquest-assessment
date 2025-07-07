@@ -7,6 +7,7 @@ import com.reliaquest.server.model.Response;
 import com.reliaquest.server.service.MockEmployeeService;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -33,6 +34,8 @@ public class MockEmployeeController {
 
     @GetMapping("/{id}")
     public ResponseEntity<Response<MockEmployee>> getEmployee(@PathVariable("id") UUID uuid) {
+        Optional<MockEmployee> mockEmployee = mockEmployeeService.findById(uuid);
+        System.out.println("mockEmployee.get().getName() "+mockEmployee.get().getName());
         return mockEmployeeService
                 .findById(uuid)
                 .map(employee -> ResponseEntity.ok(Response.handledWith(employee)))
