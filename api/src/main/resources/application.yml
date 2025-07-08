@@ -1,2 +1,28 @@
 spring.application.name: employee-api
 server.port: 8111
+resilience4j:
+  retry:
+    instances:
+      employeeService:
+        max-attempts: 3                # Total of 3 attempts (original + 2 retries)
+        wait-duration: 1s             # Wait 1s between retries
+        retry-exceptions:
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+        ignore-exceptions:
+          - com.reliaquest.api.exception.EmployeeNotFoundException
+  circuitbreaker:
+    instances:
+      employeeService:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 15s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+        ignore-exceptions:
+          - com.reliaquest.api.exception.EmployeeNotFoundException
