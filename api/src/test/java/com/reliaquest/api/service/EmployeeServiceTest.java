@@ -10,6 +10,7 @@ import static org.mockito.Mockito.*;
 import com.reliaquest.api.exception.EmployeeNotFoundException;
 import com.reliaquest.api.exception.EmployeeServiceException;
 import com.reliaquest.api.exception.InvalidEmployeeIdException;
+import com.reliaquest.api.model.DeleteMockEmployeeInput;
 import com.reliaquest.api.model.Employee;
 import com.reliaquest.api.model.EmployeeApiResponse;
 import com.reliaquest.api.model.EmployeeRequest;
@@ -33,6 +34,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClient.RequestBodySpec;
 import org.springframework.web.reactive.function.client.WebClient.RequestBodyUriSpec;
 import org.springframework.web.reactive.function.client.WebClient.ResponseSpec;
+import reactor.core.publisher.Mono;
 
 @ExtendWith(MockitoExtension.class)
 public class EmployeeServiceTest {
@@ -50,7 +52,7 @@ public class EmployeeServiceTest {
     private RequestBodySpec requestBodySpec;
 
     @Mock
-    private WebClient.RequestHeadersSpec<WebClient.RequestBodySpec> requestHeadersSpec;
+    private WebClient.RequestHeadersSpec requestHeadersSpec;
 
     @Mock
     private ResponseSpec responseSpec;
@@ -150,7 +152,7 @@ public class EmployeeServiceTest {
     }
 
     @Test
-    void getEmployeeById_429RateLimit_throwsEmployeeServiceException() {
+    void testGetEmployeeById_429RateLimit_throwsEmployeeServiceException() {
         // Given
         HttpClientErrorException exception = HttpClientErrorException.create(
                 HttpStatus.TOO_MANY_REQUESTS, "Too Many Requests", HttpHeaders.EMPTY, null, null);
@@ -203,7 +205,7 @@ public class EmployeeServiceTest {
     }
 
     @Test
-    void getTop10HighestEarningEmployeeNames_shouldReturnTop10SortedNames() {
+    void testGetTop10HighestEarningEmployeeNames_shouldReturnTop10SortedNames() {
         // Given
         List<Employee> mockEmployees = IntStream.range(1, 20)
                 .mapToObj(i -> {
@@ -235,7 +237,7 @@ public class EmployeeServiceTest {
     }
 
     @Test
-    public void testCreateEmployee_returnsCreatedEmployee() {
+    void testCreateEmployee_returnsCreatedEmployee() {
         // Given
         EmployeeRequest input = new EmployeeRequest();
         input.setName("Guru Developer");
@@ -275,7 +277,7 @@ public class EmployeeServiceTest {
     }
 
     @Test
-    void createEmployee_nullResponseBody_throwsEmployeeServiceException() {
+    void testCreateEmployee_nullResponseBody_throwsEmployeeServiceException() {
         // Given
         EmployeeRequest input = new EmployeeRequest();
         input.setName("Guru Developer");
@@ -288,7 +290,7 @@ public class EmployeeServiceTest {
                         ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<Employee>>>any()))
                 .thenReturn(emptyResponse);
 
-        //When & Then
+        // When & Then
         EmployeeServiceException ex = assertThrows(EmployeeServiceException.class, () -> {
             employeeService.createEmployee(input);
         });
@@ -297,7 +299,7 @@ public class EmployeeServiceTest {
     }
 
     @Test
-    void createEmployee_restClientException_throwsEmployeeServiceException() {
+    void testCreateEmployee_restClientException_throwsEmployeeServiceException() {
         // Given
         EmployeeRequest input = new EmployeeRequest();
         input.setName("Guru Developer");
@@ -312,6 +314,118 @@ public class EmployeeServiceTest {
         EmployeeServiceException result = assertThrows(EmployeeServiceException.class, () -> {
             employeeService.createEmployee(input);
         });
+    }
+
+    @Test
+    void testDeleteEmployeeById_Success() {
+        Employee mockEmployee = new Employee();
+        mockEmployee.setId("1");
+        mockEmployee.setEmployee_name("Guru Prasad");
+        mockEmployee.setEmployee_salary(50000);
+        mockEmployee.setEmployee_age(30);
+        mockEmployee.setEmployee_title("Developer");
+        mockEmployee.setEmployee_email("guru@example.com");
+
+        EmployeeApiResponse<Boolean> apiResponse = new EmployeeApiResponse<>();
+        apiResponse.setData(true);
+        apiResponse.setStatus("Successfully deleted");
+
+        // When
+        mockGetEmployeeById();
+
+        when(webClient.method(HttpMethod.DELETE)).thenReturn(requestBodyUriSpec);
+        when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+        when(requestBodySpec.bodyValue(any(DeleteMockEmployeeInput.class))).thenReturn(requestHeadersSpec);
+        when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.bodyToMono(ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<Boolean>>>any()))
+                .thenReturn(Mono.just(apiResponse));
+
+        // Then
+        assertDoesNotThrow(() -> employeeService.deleteEmployeeById("1"));
+    }
+
+    @Test
+    void testDeleteEmployeeById_shouldThrowException_whenDeleteFails() {
+        // Given
+        Employee mockEmployee = new Employee();
+        mockEmployee.setId("1");
+        mockEmployee.setEmployee_name("Guru Prasad");
+
+        EmployeeApiResponse<Boolean> apiResponse = new EmployeeApiResponse<>();
+        apiResponse.setData(false);
+
+        mockGetEmployeeById();
+
+        when(webClient.method(HttpMethod.DELETE)).thenReturn(requestBodyUriSpec);
+        when(requestBodyUriSpec.uri(anyString())).thenReturn(requestBodySpec);
+        when(requestBodySpec.bodyValue(any())).thenReturn(requestHeadersSpec);
+        when(requestHeadersSpec.retrieve()).thenReturn(responseSpec);
+        when(responseSpec.bodyToMono(ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<Boolean>>>any()))
+                .thenReturn(Mono.just(apiResponse));
+
+        // Then
+        assertThrows(EmployeeServiceException.class, () -> employeeService.deleteEmployeeById("1"));
+    }
+
+    @Test
+    void testDeleteEmployeeById_shouldThrowException_whenNameIsBlank() {
+        // Given
+        Employee mockEmployee = new Employee();
+        mockEmployee.setId("1");
+        mockEmployee.setEmployee_name("");
+
+        mockGetEmployeeById();
+
+        // Then
+        assertThrows(EmployeeServiceException.class, () -> employeeService.deleteEmployeeById("1"));
+    }
+
+    @Test
+    void testFallbackGetEmployee_ThrowsException() {
+        String id = "1";
+        Throwable cause = new RuntimeException("API down");
+
+        EmployeeServiceException exception =
+                assertThrows(EmployeeServiceException.class, () -> employeeService.fallbackGetEmployee(id, cause));
+
+        assertEquals("Fallback: Unable to fetch employee with ID: " + id, exception.getMessage());
+        assertEquals(cause, exception.getCause());
+    }
+
+    @Test
+    void testFallbackGetAllEmployees_ReturnsEmptyList() {
+        Throwable cause = new RuntimeException("Timeout");
+
+        List<Employee> result = employeeService.fallbackGetAllEmployees(cause);
+
+        assertNotNull(result);
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void testFallbackCreateEmployee_ThrowsException() {
+        EmployeeRequest request = new EmployeeRequest();
+        request.setName("Guru Prasad");
+
+        Throwable cause = new RuntimeException("Internal Server Error");
+
+        EmployeeServiceException exception = assertThrows(
+                EmployeeServiceException.class, () -> employeeService.fallbackCreateEmployee(request, cause));
+
+        assertEquals("Fallback: Unable to create employee " + request.getName(), exception.getMessage());
+        assertEquals(cause, exception.getCause());
+    }
+
+    @Test
+    void testFallbackDeleteEmployee_ThrowsException() {
+        String id = "1";
+        Throwable cause = new RuntimeException("Service unavailable");
+
+        EmployeeServiceException exception =
+                assertThrows(EmployeeServiceException.class, () -> employeeService.fallbackDeleteEmployee(id, cause));
+
+        assertEquals("Fallback: Unable to delete employee with ID: " + id, exception.getMessage());
+        assertEquals(cause, exception.getCause());
     }
 
     private static List<Employee> getMockedEmployee() {

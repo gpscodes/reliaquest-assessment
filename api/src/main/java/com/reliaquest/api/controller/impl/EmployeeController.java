@@ -28,13 +28,14 @@ public class EmployeeController implements IEmployeeController<Employee, Employe
     @Override
     public ResponseEntity<List<Employee>> getEmployeesByNameSearch(@PathVariable String searchString) {
         List<Employee> employees = employeeService.getEmployeesByNameSearch(searchString);
-        log.info("Search for '{}' returned {} result(s)", searchString, employees.size());
+        log.info("EmployeeController : Search for '{}' returned {} result.", searchString, employees.size());
         return ResponseEntity.ok(employees);
     }
 
     @Override
     public ResponseEntity<Employee> getEmployeeById(@PathVariable String id) {
         Employee employee = employeeService.getEmployeeById(id);
+        log.info("EmployeeController : Employee retrieved for ID : {}.", id);
         return ResponseEntity.ok(employee);
     }
 
@@ -42,9 +43,10 @@ public class EmployeeController implements IEmployeeController<Employee, Employe
     public ResponseEntity<Integer> getHighestSalaryOfEmployees() {
         Integer highestSalary = employeeService.getHighestSalaryOfEmployees();
         if (highestSalary == null) {
-            log.info("No salary data available");
+            log.info("EmployeeController : No salary data available.");
             return ResponseEntity.noContent().build();
         }
+        log.info("EmployeeController : Highest salary retrieved successfully.");
         return ResponseEntity.ok(highestSalary);
     }
 
@@ -52,22 +54,24 @@ public class EmployeeController implements IEmployeeController<Employee, Employe
     public ResponseEntity<List<String>> getTopTenHighestEarningEmployeeNames() {
         List<String> topEarners = employeeService.getTop10HighestEarningEmployeeNames();
         if (topEarners == null || topEarners.isEmpty()) {
-            log.info("No high earning employee names found.");
+            log.info("EmployeeController : No high earning employee names found.");
             return ResponseEntity.noContent().build();
         }
+        log.info("EmployeeController : High earning employee names retrieved successfully.");
         return ResponseEntity.ok(topEarners);
     }
 
     @Override
     public ResponseEntity<Employee> createEmployee(@Valid @RequestBody EmployeeRequest request) {
         Employee createdEmployee = employeeService.createEmployee(request);
+        log.info("EmployeeController : employee successfully added in the mock api.");
         return ResponseEntity.status(HttpStatus.CREATED).body(createdEmployee);
     }
 
     @Override
     public ResponseEntity<String> deleteEmployeeById(@PathVariable String id) {
         employeeService.deleteEmployeeById(id);
-        log.info("Employee with ID {} successfully deleted", id);
+        log.info("Employee with ID {} successfully deleted.", id);
         return ResponseEntity.noContent().build();
     }
 }
