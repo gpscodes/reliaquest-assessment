@@ -43,12 +43,15 @@ public class MockEmployeeService {
     }
 
     public boolean delete(@NonNull DeleteMockEmployeeInput input) {
+        log.info("Reaaaaaaaaaaaaaaaaaachhhhhhhhhhhhhhhhhhhhhhhhhhhhh");
         final var mockEmployee = mockEmployees.stream()
                 .filter(employee -> Objects.nonNull(employee.getName())
                         && employee.getName().equalsIgnoreCase(input.getName()))
                 .findFirst();
+        log.info("mock emplpyee : {}", mockEmployee.get().getId());
         if (mockEmployee.isPresent()) {
             mockEmployees.remove(mockEmployee.get());
+            log.info("Removed employee: {}", mockEmployee.get());
             log.debug("Removed employee: {}", mockEmployee.get());
             return true;
         }

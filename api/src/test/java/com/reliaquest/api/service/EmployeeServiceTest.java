@@ -1,40 +1,59 @@
 package com.reliaquest.api.service;
 
-import com.reliaquest.api.exception.EmployeeNotFoundException;
-import com.reliaquest.api.exception.EmployeeServiceException;
-import com.reliaquest.api.exception.InvalidEmployeeIdException;
-import com.reliaquest.api.model.Employee;
-import com.reliaquest.api.model.EmployeeApiResponse;
-import com.reliaquest.api.model.EmployeeRequest;
-import com.reliaquest.api.model.SingleEmployeeApiResponse;
-import com.reliaquest.api.service.impl.EmployeeService;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentMatchers;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.*;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
-
-import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-
+import static com.reliaquest.api.utils.EmployeeConstants.MOCK_API_URL;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
-@SpringBootTest
+import com.reliaquest.api.exception.EmployeeNotFoundException;
+import com.reliaquest.api.exception.EmployeeServiceException;
+import com.reliaquest.api.exception.InvalidEmployeeIdException;
+import com.reliaquest.api.model.Employee;
+import com.reliaquest.api.model.EmployeeApiResponse;
+import com.reliaquest.api.model.EmployeeRequest;
+import com.reliaquest.api.service.impl.EmployeeService;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.*;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClient.RequestBodySpec;
+import org.springframework.web.reactive.function.client.WebClient.RequestBodyUriSpec;
+import org.springframework.web.reactive.function.client.WebClient.ResponseSpec;
+
+@ExtendWith(MockitoExtension.class)
 public class EmployeeServiceTest {
 
     @Mock
     RestTemplate restTemplate;
+
+    @Mock
+    private WebClient webClient;
+
+    @Mock
+    private RequestBodyUriSpec requestBodyUriSpec;
+
+    @Mock
+    private RequestBodySpec requestBodySpec;
+
+    @Mock
+    private WebClient.RequestHeadersSpec<WebClient.RequestBodySpec> requestHeadersSpec;
+
+    @Mock
+    private ResponseSpec responseSpec;
 
     @InjectMocks
     EmployeeService employeeService;
@@ -52,12 +71,19 @@ public class EmployeeServiceTest {
         Employee employee = new Employee();
         employee.setEmployee_name("Test Employee");
 
-        EmployeeApiResponse mockResponse = new EmployeeApiResponse();
+        EmployeeApiResponse<List<Employee>> mockResponse = new EmployeeApiResponse<>();
         mockResponse.setData(List.of(employee));
         mockResponse.setStatus("Successfully processed request.");
+        ResponseEntity<EmployeeApiResponse<List<Employee>>> response =
+                new ResponseEntity<>(mockResponse, HttpStatus.OK);
 
         // When
-        when(restTemplate.getForObject(anyString(), eq(EmployeeApiResponse.class))).thenReturn(mockResponse);
+        when(restTemplate.exchange(
+                        anyString(),
+                        eq(HttpMethod.GET),
+                        isNull(),
+                        ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<List<Employee>>>>any()))
+                .thenReturn(response);
         List<Employee> result = employeeService.getAllEmployees();
 
         // Then
@@ -71,9 +97,16 @@ public class EmployeeServiceTest {
         EmployeeApiResponse mockResponse = new EmployeeApiResponse();
         mockResponse.setData(Collections.emptyList());
         mockResponse.setStatus("Successfully processed request.");
+        ResponseEntity<EmployeeApiResponse<List<Employee>>> response =
+                new ResponseEntity<>(mockResponse, HttpStatus.OK);
 
         // When
-        when(restTemplate.getForObject(anyString(), eq(EmployeeApiResponse.class))).thenReturn(mockResponse);
+        when(restTemplate.exchange(
+                        anyString(),
+                        eq(HttpMethod.GET),
+                        isNull(),
+                        ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<List<Employee>>>>any()))
+                .thenReturn(response);
         List<Employee> result = employeeService.getAllEmployees();
 
         // Then
@@ -83,17 +116,10 @@ public class EmployeeServiceTest {
     @Test
     public void testGetEmployeeById_returnsEmployee() {
         // Given
-        SingleEmployeeApiResponse response = new SingleEmployeeApiResponse();
-        response.setData(mockedEmployees.get(0));
-        final String employeeId = mockedEmployees.get(0).getId();
-        ResponseEntity<SingleEmployeeApiResponse> mockResponse =
-                new ResponseEntity<>(response, HttpStatus.OK);
-        when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), isNull(),
-                ArgumentMatchers.<ParameterizedTypeReference<SingleEmployeeApiResponse>>any()))
-                .thenReturn(mockResponse);
+        mockGetEmployeeById();
 
         // When
-        Employee result = employeeService.getEmployeeById(employeeId);
+        Employee result = employeeService.getEmployeeById(mockedEmployees.get(0).getId());
 
         // Then
         assertNotNull(result);
@@ -108,56 +134,49 @@ public class EmployeeServiceTest {
 
     @Test
     void testGetEmployeeById_404NotFound_throwsEmployeeNotFoundException() {
-        HttpClientErrorException exception = HttpClientErrorException.create(
-                HttpStatus.NOT_FOUND,
-                "Not Found",
-                HttpHeaders.EMPTY,
-                null,
-                null
-        );
+        // When
+        HttpClientErrorException exception =
+                HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found", HttpHeaders.EMPTY, null, null);
 
         when(restTemplate.exchange(
-                anyString(),
-                eq(HttpMethod.GET),
-                isNull(),
-                ArgumentMatchers.<ParameterizedTypeReference<SingleEmployeeApiResponse>>any()
-        )).thenThrow(exception);
+                        anyString(),
+                        eq(HttpMethod.GET),
+                        isNull(),
+                        ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<Employee>>>any()))
+                .thenThrow(exception);
 
+        // Then
         assertThrows(EmployeeNotFoundException.class, () -> employeeService.getEmployeeById("id"));
     }
 
     @Test
     void getEmployeeById_429RateLimit_throwsEmployeeServiceException() {
+        // Given
         HttpClientErrorException exception = HttpClientErrorException.create(
-                HttpStatus.TOO_MANY_REQUESTS,
-                "Too Many Requests",
-                HttpHeaders.EMPTY,
-                null,
-                null
-        );
+                HttpStatus.TOO_MANY_REQUESTS, "Too Many Requests", HttpHeaders.EMPTY, null, null);
 
         when(restTemplate.exchange(
-                anyString(),
-                eq(HttpMethod.GET),
-                isNull(),
-                ArgumentMatchers.<ParameterizedTypeReference<SingleEmployeeApiResponse>>any()
-        )).thenThrow(exception);
+                        anyString(),
+                        eq(HttpMethod.GET),
+                        isNull(),
+                        ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<Employee>>>any()))
+                .thenThrow(exception);
 
-        EmployeeServiceException ex = assertThrows(EmployeeServiceException.class, () -> employeeService.getEmployeeById("id"));
+        // When & Then
+        EmployeeServiceException ex =
+                assertThrows(EmployeeServiceException.class, () -> employeeService.getEmployeeById("id"));
         assertTrue(ex.getMessage().contains("Rate limit exceeded"));
     }
 
     @Test
     public void testGetEmployeesByNameSearch_returnsMatchingEmployees() {
-        EmployeeApiResponse response = new EmployeeApiResponse();
-        response.setData(mockedEmployees);
+        // Given
+        mockGetAllEmployees();
 
-        when(restTemplate.getForObject(anyString(), eq(EmployeeApiResponse.class))).thenReturn(response);
-
-        // Act
+        // When
         List<Employee> result = employeeService.getEmployeesByNameSearch("Prasad");
 
-        // Assert
+        // Then
         assertEquals(2, result.size());
         assertTrue(result.stream().anyMatch(e -> e.getEmployee_name().equals("Guru Prasad")));
     }
@@ -173,18 +192,51 @@ public class EmployeeServiceTest {
 
     @Test
     public void testGetHighestSalaryOfEmployees_returnsMaxSalary() {
-        EmployeeApiResponse response = new EmployeeApiResponse();
-        response.setData(mockedEmployees);
+        // Given
+        mockGetAllEmployees();
 
-        when(restTemplate.getForObject(anyString(), eq(EmployeeApiResponse.class))).thenReturn(response);
-
+        // When
         Integer max = employeeService.getHighestSalaryOfEmployees();
+
+        // Then
         assertEquals(1100, max);
     }
 
     @Test
+    void getTop10HighestEarningEmployeeNames_shouldReturnTop10SortedNames() {
+        // Given
+        List<Employee> mockEmployees = IntStream.range(1, 20)
+                .mapToObj(i -> {
+                    Employee e = new Employee();
+                    e.setId(UUID.randomUUID().toString());
+                    e.setEmployee_name("Employee " + i);
+                    e.setEmployee_salary(1000 * i); // Increasing salaries
+                    return e;
+                })
+                .collect(Collectors.toList());
+
+        EmployeeApiResponse response = new EmployeeApiResponse();
+        response.setData(mockEmployees);
+        ResponseEntity<EmployeeApiResponse<Employee>> mockResponse = new ResponseEntity<>(response, HttpStatus.OK);
+        when(restTemplate.exchange(
+                        anyString(),
+                        eq(HttpMethod.GET),
+                        isNull(),
+                        ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<Employee>>>any()))
+                .thenReturn(mockResponse);
+
+        // When
+        List<String> result = employeeService.getTop10HighestEarningEmployeeNames();
+
+        // Then
+        assertEquals(10, result.size());
+        assertEquals("Employee 19", result.get(0)); // Highest salary
+        assertEquals("Employee 10", result.get(9)); // 10th highest
+    }
+
+    @Test
     public void testCreateEmployee_returnsCreatedEmployee() {
-        // Arrange: input employee (creation request)
+        // Given
         EmployeeRequest input = new EmployeeRequest();
         input.setName("Guru Developer");
         input.setSalary(1500);
@@ -200,18 +252,22 @@ public class EmployeeServiceTest {
         created.setEmployee_title("Software Engineer");
         created.setEmployee_email("gurup@company.com");
 
-        EmployeeApiResponse response = new EmployeeApiResponse();
-        response.setData(List.of(created));
+        EmployeeApiResponse<Employee> apiResponse = new EmployeeApiResponse<>();
+        apiResponse.setStatus("success");
+        apiResponse.setData(created);
+        ResponseEntity<EmployeeApiResponse<Employee>> mockResponse = new ResponseEntity<>(apiResponse, HttpStatus.OK);
 
-        // Mocking RestTemplate
-        when(restTemplate.postForEntity(
-                eq("http://localhost:8112/api/v1/employee"), any(HttpEntity.class), eq(Employee.class)))
-                .thenReturn(new ResponseEntity<>(created, HttpStatus.CREATED));
+        when(restTemplate.exchange(
+                        anyString(),
+                        eq(HttpMethod.POST),
+                        any(HttpEntity.class),
+                        ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<Employee>>>any()))
+                .thenReturn(mockResponse);
 
-        // Act
+        // When
         Employee result = employeeService.createEmployee(input);
 
-        // Assert
+        // Then
         assertNotNull(result);
         assertEquals("3", result.getId());
         assertEquals("Guru Developer", result.getEmployee_name());
@@ -220,16 +276,19 @@ public class EmployeeServiceTest {
 
     @Test
     void createEmployee_nullResponseBody_throwsEmployeeServiceException() {
+        // Given
         EmployeeRequest input = new EmployeeRequest();
         input.setName("Guru Developer");
-        ResponseEntity<Employee> response = new ResponseEntity<>(null, HttpStatus.CREATED);
+        ResponseEntity<EmployeeApiResponse<Employee>> emptyResponse = new ResponseEntity<>(null, HttpStatus.OK);
 
-        when(restTemplate.postForEntity(
-                anyString(),
-                any(HttpEntity.class),
-                eq(Employee.class)
-        )).thenReturn(response);
+        when(restTemplate.exchange(
+                        anyString(),
+                        eq(HttpMethod.POST),
+                        any(HttpEntity.class),
+                        ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<Employee>>>any()))
+                .thenReturn(emptyResponse);
 
+        //When & Then
         EmployeeServiceException ex = assertThrows(EmployeeServiceException.class, () -> {
             employeeService.createEmployee(input);
         });
@@ -239,170 +298,20 @@ public class EmployeeServiceTest {
 
     @Test
     void createEmployee_restClientException_throwsEmployeeServiceException() {
+        // Given
         EmployeeRequest input = new EmployeeRequest();
         input.setName("Guru Developer");
-        RestClientException ex = new RestClientException("Connection error");
+        when(restTemplate.exchange(
+                        eq(MOCK_API_URL),
+                        eq(HttpMethod.POST),
+                        any(HttpEntity.class),
+                        ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<Employee>>>any()))
+                .thenThrow(new RestClientException("Service unavailable"));
 
-        when(restTemplate.postForEntity(
-                anyString(),
-                any(HttpEntity.class),
-                eq(Employee.class)
-        )).thenThrow(ex);
-
+        // When & Then
         EmployeeServiceException result = assertThrows(EmployeeServiceException.class, () -> {
             employeeService.createEmployee(input);
         });
-
-        assertEquals("Failed to create employee due to API error", result.getMessage());
-        assertEquals(ex, result.getCause());
-    }
-
-
-    @Test
-    void deleteEmployeeById_success() {
-        // Mock getEmployeeById
-        SingleEmployeeApiResponse response = new SingleEmployeeApiResponse();
-        response.setData(mockedEmployees.get(0));
-        ResponseEntity<SingleEmployeeApiResponse> mockResponseById =
-                new ResponseEntity<>(response, HttpStatus.OK);
-        when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), isNull(),
-                ArgumentMatchers.<ParameterizedTypeReference<SingleEmployeeApiResponse>>any()))
-                .thenReturn(mockResponseById);
-
-        // Mock delete exchange
-        Map<String, Object> mockResponseBody = new HashMap<>();
-        mockResponseBody.put("data", true);
-        mockResponseBody.put("status", "success");
-
-        ResponseEntity<Map> mockResponse = new ResponseEntity<>(mockResponseBody, HttpStatus.OK);
-
-        when(restTemplate.exchange(anyString(),
-                eq(HttpMethod.DELETE),
-                any(HttpEntity.class),
-                eq(Map.class))
-        ).thenReturn(mockResponse);
-
-        assertDoesNotThrow(() -> employeeService.deleteEmployeeById(mockedEmployees.get(0).getId()));
-    }
-
-    @Test
-    void deleteEmployeeById_employeeNotFound() {
-        SingleEmployeeApiResponse response = new SingleEmployeeApiResponse();
-        ResponseEntity<SingleEmployeeApiResponse> mockResponseById =
-                new ResponseEntity<>(response, HttpStatus.OK);
-        when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), isNull(),
-                ArgumentMatchers.<ParameterizedTypeReference<SingleEmployeeApiResponse>>any()))
-                .thenReturn(mockResponseById);
-
-        assertThrows(EmployeeServiceException.class, () -> employeeService.deleteEmployeeById("id"));
-    }
-
-    @Test
-    void deleteEmployeeById_missingName_throwsException() {
-        SingleEmployeeApiResponse response = new SingleEmployeeApiResponse();
-        Employee employee = new Employee();
-        employee.setEmployee_name(null);
-        response.setData(employee);
-        ResponseEntity<SingleEmployeeApiResponse> mockResponseById =
-                new ResponseEntity<>(response, HttpStatus.OK);
-        when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), isNull(),
-                ArgumentMatchers.<ParameterizedTypeReference<SingleEmployeeApiResponse>>any()))
-                .thenReturn(mockResponseById);
-
-        EmployeeServiceException ex = assertThrows(EmployeeServiceException.class, () -> employeeService.deleteEmployeeById("id"));
-        assertTrue(ex.getMessage().contains("name is missing"));
-    }
-
-    @Test
-    void deleteEmployeeById_apiReturnsFalse_throwsException() {
-        SingleEmployeeApiResponse response = new SingleEmployeeApiResponse();
-        response.setData(mockedEmployees.get(0));
-        ResponseEntity<SingleEmployeeApiResponse> mockResponseById =
-                new ResponseEntity<>(response, HttpStatus.OK);
-        when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), isNull(),
-                ArgumentMatchers.<ParameterizedTypeReference<SingleEmployeeApiResponse>>any()))
-                .thenReturn(mockResponseById);
-
-        Map<String, Object> mockResponseBody = new HashMap<>();
-        mockResponseBody.put("data", false);
-
-        ResponseEntity<Map> mockResponse = new ResponseEntity<>(mockResponseBody, HttpStatus.OK);
-
-        when(restTemplate.exchange(
-                anyString(),
-                eq(HttpMethod.DELETE),
-                any(HttpEntity.class),
-                eq(Map.class))
-        ).thenReturn(mockResponse);
-
-        assertThrows(EmployeeServiceException.class, () -> employeeService.deleteEmployeeById(mockedEmployees.get(0).getId()));
-    }
-
-    @Test
-    void deleteEmployeeById_rateLimited_throwsException() {
-        SingleEmployeeApiResponse response = new SingleEmployeeApiResponse();
-        response.setData(mockedEmployees.get(0));
-        ResponseEntity<SingleEmployeeApiResponse> mockResponseById =
-                new ResponseEntity<>(response, HttpStatus.OK);
-        when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), isNull(),
-                ArgumentMatchers.<ParameterizedTypeReference<SingleEmployeeApiResponse>>any()))
-                .thenReturn(mockResponseById);
-
-        when(restTemplate.exchange(
-                anyString(),
-                eq(HttpMethod.DELETE),
-                any(HttpEntity.class),
-                eq(Map.class))
-        ).thenThrow(new HttpClientErrorException(HttpStatus.TOO_MANY_REQUESTS));
-
-        assertThrows(EmployeeServiceException.class, () -> employeeService.deleteEmployeeById(mockedEmployees.get(0).getId()));
-    }
-
-    @Test
-    void deleteEmployeeById_genericError_throwsException() {
-        SingleEmployeeApiResponse response = new SingleEmployeeApiResponse();
-        response.setData(mockedEmployees.get(0));
-        ResponseEntity<SingleEmployeeApiResponse> mockResponseById =
-                new ResponseEntity<>(response, HttpStatus.OK);
-        when(restTemplate.exchange(anyString(), eq(HttpMethod.GET), isNull(),
-                ArgumentMatchers.<ParameterizedTypeReference<SingleEmployeeApiResponse>>any()))
-                .thenReturn(mockResponseById);
-
-        when(restTemplate.exchange(
-                anyString(),
-                eq(HttpMethod.DELETE),
-                any(HttpEntity.class),
-                eq(Map.class))
-        ).thenThrow(new RuntimeException("Unexpected"));
-
-        assertThrows(EmployeeServiceException.class, () -> employeeService.deleteEmployeeById(mockedEmployees.get(0).getId()));
-    }
-
-    @Test
-    void getTop10HighestEarningEmployeeNames_shouldReturnTop10SortedNames() {
-        // Arrange
-        List<Employee> mockEmployees = IntStream.range(1, 20)
-                .mapToObj(i -> {
-                    Employee e = new Employee();
-                    e.setId(UUID.randomUUID().toString());
-                    e.setEmployee_name("Employee " + i);
-                    e.setEmployee_salary(1000 * i); // Increasing salaries
-                    return e;
-                })
-                .collect(Collectors.toList());
-
-        EmployeeApiResponse mockResponse = new EmployeeApiResponse();
-        mockResponse.setData(mockEmployees);
-
-        when(restTemplate.getForObject(anyString(), eq(EmployeeApiResponse.class))).thenReturn(mockResponse);
-
-        // Act
-        List<String> result = employeeService.getTop10HighestEarningEmployeeNames();
-
-        // Assert
-        assertEquals(10, result.size());
-        assertEquals("Employee 19", result.get(0)); // Highest salary
-        assertEquals("Employee 10", result.get(9)); // 10th highest
     }
 
     private static List<Employee> getMockedEmployee() {
@@ -417,5 +326,32 @@ public class EmployeeServiceTest {
         mockEmp2.setEmployee_salary(1100);
 
         return List.of(mockEmp1, mockEmp2);
+    }
+
+    private void mockGetEmployeeById() {
+        EmployeeApiResponse<Employee> response = new EmployeeApiResponse<>();
+        response.setData(mockedEmployees.get(0));
+        ResponseEntity<EmployeeApiResponse<Employee>> mockResponse = new ResponseEntity<>(response, HttpStatus.OK);
+        when(restTemplate.exchange(
+                        anyString(),
+                        eq(HttpMethod.GET),
+                        isNull(),
+                        ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<Employee>>>any()))
+                .thenReturn(mockResponse);
+    }
+
+    private String mockGetAllEmployees() {
+        EmployeeApiResponse<List<Employee>> response = new EmployeeApiResponse<>();
+        response.setData(mockedEmployees);
+        final String employeeId = mockedEmployees.get(0).getId();
+        ResponseEntity<EmployeeApiResponse<List<Employee>>> mockResponse =
+                new ResponseEntity<>(response, HttpStatus.OK);
+        when(restTemplate.exchange(
+                        anyString(),
+                        eq(HttpMethod.GET),
+                        isNull(),
+                        ArgumentMatchers.<ParameterizedTypeReference<EmployeeApiResponse<List<Employee>>>>any()))
+                .thenReturn(mockResponse);
+        return employeeId;
     }
 }

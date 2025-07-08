@@ -2,17 +2,15 @@ package com.reliaquest.api.service.impl;
 
 import static com.reliaquest.api.utils.EmployeeConstants.*;
 
-import com.reliaquest.api.model.Employee;
-import com.reliaquest.api.model.EmployeeRequest;
-import com.reliaquest.api.model.EmployeeApiResponse;
-import com.reliaquest.api.model.SingleEmployeeApiResponse;
 import com.reliaquest.api.exception.EmployeeNotFoundException;
 import com.reliaquest.api.exception.EmployeeServiceException;
 import com.reliaquest.api.exception.InvalidEmployeeIdException;
+import com.reliaquest.api.model.*;
+import com.reliaquest.api.service.IEmployeeService;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import java.util.*;
 import java.util.stream.Collectors;
-
-import com.reliaquest.api.service.IEmployeeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -23,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.reactive.function.client.WebClient;
 
 @Service
 @RequiredArgsConstructor
@@ -31,14 +30,24 @@ public class EmployeeService implements IEmployeeService {
 
     private final RestTemplate restTemplate;
 
+    private final WebClient webClient;
+
     @Override
     @Cacheable("employees")
+    @Retry(name = "employeeService", fallbackMethod = "fallbackGetEmployee")
+    @CircuitBreaker(name = "employeeService", fallbackMethod = "fallbackGetEmployee")
     public List<Employee> getAllEmployees() {
         log.info("EmployeeService : Fetching all employees from mock API.");
-        EmployeeApiResponse response = restTemplate.getForObject(MOCK_API_URL, EmployeeApiResponse.class);
-        if (response != null && response.getData() != null && !response.getData().isEmpty()) {
-            log.info("EmployeeService : Retrieved {} employees.", response.getData().size());
-            return response.getData();
+        ResponseEntity<EmployeeApiResponse<List<Employee>>> response = restTemplate.exchange(
+                MOCK_API_URL,
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<EmployeeApiResponse<List<Employee>>>() {});
+        if (response.getBody() != null && !response.getBody().getData().isEmpty()) {
+            log.info(
+                    "EmployeeService : Retrieved {} employees.",
+                    response.getBody().getData().size());
+            return response.getBody().getData();
         } else {
             log.warn("EmployeeService : No employees found or response was null.");
             return Collections.emptyList();
@@ -47,6 +56,8 @@ public class EmployeeService implements IEmployeeService {
 
     @Override
     @Cacheable(value = "employeeById", key = "#id")
+    @Retry(name = "employeeService", fallbackMethod = "fallbackGetEmployee")
+    @CircuitBreaker(name = "employeeService", fallbackMethod = "fallbackGetEmployee")
     public Employee getEmployeeById(String id) {
         validateId(id);
 
@@ -54,12 +65,8 @@ public class EmployeeService implements IEmployeeService {
         log.info("EmployeeService : Fetching employee by ID: {}", id);
 
         try {
-            ResponseEntity<SingleEmployeeApiResponse> response = restTemplate.exchange(
-                    url,
-                    HttpMethod.GET,
-                    null,
-                    new ParameterizedTypeReference<>() {}
-            );
+            ResponseEntity<EmployeeApiResponse<Employee>> response = restTemplate.exchange(
+                    url, HttpMethod.GET, null, new ParameterizedTypeReference<EmployeeApiResponse<Employee>>() {});
             if (Objects.requireNonNull(response.getBody()).getData() != null) {
                 return response.getBody().getData();
             }
@@ -72,7 +79,11 @@ public class EmployeeService implements IEmployeeService {
             log.warn("EmployeeService : Rate limit hit when calling mock API: {}", e.getMessage());
             throw new EmployeeServiceException("Rate limit exceeded. Please try again later.", e);
         } catch (Exception exception) {
-            log.error("EmployeeService : Error occurred while fetching employee ID {}: {}", id, exception.getMessage(), exception);
+            log.error(
+                    "EmployeeService : Error occurred while fetching employee ID {}: {}",
+                    id,
+                    exception.getMessage(),
+                    exception);
             throw new EmployeeServiceException("Failed to fetch employee with ID: " + id, exception);
         }
     }
@@ -109,6 +120,8 @@ public class EmployeeService implements IEmployeeService {
 
     @Override
     @CacheEvict(value = "employees", allEntries = true)
+    @Retry(name = "employeeService", fallbackMethod = "fallbackCreateEmployee")
+    @CircuitBreaker(name = "employeeService", fallbackMethod = "fallbackCreateEmployee")
     public Employee createEmployee(EmployeeRequest request) {
         log.info("EmployeeService : Creating new employee: {}", request.getName());
 
@@ -118,11 +131,15 @@ public class EmployeeService implements IEmployeeService {
         HttpEntity<EmployeeRequest> entity = new HttpEntity<>(request, headers);
 
         try {
-            ResponseEntity<Employee> response = restTemplate.postForEntity(MOCK_API_URL, entity, Employee.class);
+            ResponseEntity<EmployeeApiResponse<Employee>> response = restTemplate.exchange(
+                    MOCK_API_URL,
+                    HttpMethod.POST,
+                    entity,
+                    new ParameterizedTypeReference<EmployeeApiResponse<Employee>>() {});
 
             if (response.getBody() != null) {
                 log.info("EmployeeService : Employee created successfully: {}", response.getBody());
-                return response.getBody();
+                return response.getBody().getData();
             } else {
                 log.error("EmployeeService : Empty response while creating employee");
                 throw new EmployeeServiceException("EmployeeService : Failed to create employee: empty response body");
@@ -146,11 +163,17 @@ public class EmployeeService implements IEmployeeService {
     }
 
     @Override
-    @CacheEvict(value = "employeeById", key = "#id")
+    @CacheEvict(
+            value = {"employeeById", "employees"},
+            key = "#id",
+            allEntries = true)
+    @Retry(name = "employeeService", fallbackMethod = "fallbackDeleteEmployee")
+    @CircuitBreaker(name = "employeeService", fallbackMethod = "fallbackDeleteEmployee")
     public void deleteEmployeeById(String id) {
         log.info("EmployeeService : Attempting to delete employee with ID: {}", id);
         Employee employee = getEmployeeById(id);
         final String name = employee.getEmployee_name();
+        log.info("EmployeeService : Attempting to delete employee with ID: {} and Name: {}", id, name);
 
         if (name == null || name.isBlank()) {
             log.error("EmployeeService : Employee name is missing for ID: {}", id);
@@ -159,24 +182,20 @@ public class EmployeeService implements IEmployeeService {
 
         String url = MOCK_API_URL + FORWARD_SLASH + name;
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+        DeleteMockEmployeeInput input =
+                DeleteMockEmployeeInput.builder().name(name).build();
 
-        Map<String, String> body = new HashMap<>();
-        body.put("name", name);
-
-        HttpEntity<Map<String, String>> requestEntity = new HttpEntity<>(body, headers);
         try {
-            ResponseEntity<Map> response = restTemplate.exchange(
-                    url,
-                    HttpMethod.DELETE,
-                    requestEntity,
-                    Map.class
-            );
+            EmployeeApiResponse<Boolean> response = webClient
+                    .method(HttpMethod.DELETE)
+                    .uri(MOCK_API_URL)
+                    .bodyValue(input)
+                    .retrieve()
+                    .bodyToMono(new ParameterizedTypeReference<EmployeeApiResponse<Boolean>>() {})
+                    .block();
 
-            log.info("EmployeeService : Delete response: {}", response.getBody());
-            Boolean deleted = Optional.ofNullable((Boolean) response.getBody().get("data")).orElse(false);
-            if (!deleted) {
+            log.info("EmployeeService : Delete response: {}", response.getData());
+            if (!response.getData()) {
                 throw new EmployeeServiceException("EmployeeService : Employee not deleted as expected.");
             }
             log.info("EmployeeService : Successfully deleted employee: {}", name);
@@ -185,8 +204,29 @@ public class EmployeeService implements IEmployeeService {
             throw new EmployeeServiceException("Failed to delete employee. HTTP Status: " + ex.getStatusCode(), ex);
         } catch (Exception ex) {
             log.error("EmployeeService : Unexpected error deleting employee id'{}': {}", id, ex.getMessage());
-            throw new EmployeeServiceException("EmployeeService : Unexpected error occurred while deleting employee.", ex);
+            throw new EmployeeServiceException(
+                    "EmployeeService : Unexpected error occurred while deleting employee.", ex);
         }
+    }
+
+    public Employee fallbackGetEmployee(String id, Throwable t) {
+        log.warn("Fallback triggered for getEmployeeById (id={}): {}", id, t.getMessage());
+        throw new EmployeeServiceException("Fallback: Unable to fetch employee with ID: " + id, t);
+    }
+
+    public List<Employee> fallbackGetAllEmployees(Throwable t) {
+        log.warn("Fallback triggered for getAllEmployees: {}", t.getMessage());
+        return Collections.emptyList(); // Or throw if you prefer failure
+    }
+
+    public Employee fallbackCreateEmployee(EmployeeRequest request, Throwable t) {
+        log.warn("Fallback triggered for createEmployee (name={}): {}", request.getName(), t.getMessage());
+        throw new EmployeeServiceException("Fallback: Unable to create employee " + request.getName(), t);
+    }
+
+    public void fallbackDeleteEmployee(String id, Throwable t) {
+        log.warn("Fallback triggered for deleteEmployeeById (id={}): {}", id, t.getMessage());
+        throw new EmployeeServiceException("Fallback: Unable to delete employee with ID: " + id, t);
     }
 
     private List<Employee> getEmployees() {

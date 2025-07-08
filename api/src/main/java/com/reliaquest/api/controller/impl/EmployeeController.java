@@ -1,5 +1,6 @@
-package com.reliaquest.api.controller;
+package com.reliaquest.api.controller.impl;
 
+import com.reliaquest.api.controller.IEmployeeController;
 import com.reliaquest.api.model.Employee;
 import com.reliaquest.api.model.EmployeeRequest;
 import com.reliaquest.api.service.impl.EmployeeService;

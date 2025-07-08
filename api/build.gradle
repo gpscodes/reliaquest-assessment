@@ -11,10 +11,15 @@ dependencies {
     implementation 'io.github.resilience4j:resilience4j-circuitbreaker:2.2.0'
     implementation 'io.github.resilience4j:resilience4j-timelimiter:2.2.0'
     implementation 'io.github.resilience4j:resilience4j-ratelimiter:2.2.0'
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 
 springBoot {
     mainClass = 'com.reliaquest.api.ApiApplication'
+}
+
+test {
+    useJUnitPlatform()
 }

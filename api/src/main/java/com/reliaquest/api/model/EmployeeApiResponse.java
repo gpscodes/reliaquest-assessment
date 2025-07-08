@@ -1,11 +1,11 @@
 package com.reliaquest.api.model;
 
-import java.util.List;
 import lombok.Data;
 
 @Data
-public class EmployeeApiResponse {
+public class EmployeeApiResponse<T> {
 
-    private List<Employee> data;
+    private T data;
     private String status;
+    private String error;
 }

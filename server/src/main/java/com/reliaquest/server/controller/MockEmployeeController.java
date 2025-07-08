@@ -35,7 +35,7 @@ public class MockEmployeeController {
     @GetMapping("/{id}")
     public ResponseEntity<Response<MockEmployee>> getEmployee(@PathVariable("id") UUID uuid) {
         Optional<MockEmployee> mockEmployee = mockEmployeeService.findById(uuid);
-        System.out.println("mockEmployee.get().getName() "+mockEmployee.get().getName());
+        System.out.println("mockEmployee.get().getName() " + mockEmployee.get().getName());
         return mockEmployeeService
                 .findById(uuid)
                 .map(employee -> ResponseEntity.ok(Response.handledWith(employee)))
